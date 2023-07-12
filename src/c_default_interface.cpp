@@ -352,6 +352,14 @@ hmat_compression_algorithm_t* hmat_create_compression_aca_plus(double epsilon) {
 hmat_compression_algorithm_t* hmat_create_compression_aca_random(double epsilon) {
     return static_cast<hmat_compression_algorithm_t*>((void*) new hmat::CompressionAcaRandom(epsilon));
 }
+hmat_compression_algorithm_t* hmat_create_compression_ard_gauss(double epsilon) {
+    return static_cast<hmat_compression_algorithm_t*>((void*) new hmat::CompressionArdGaussBlock(epsilon));
+}
+
+//hmat_compression_algorithm_t* hmat_create_compression_ard_gauss_nu(double epsilon) {
+//    return static_cast<hmat_compression_algorithm_t*>((void*) new hmat::CompressionArdGaussBlockNU(epsilon));
+//}
+
 hmat_compression_algorithm_t* hmat_create_compression_rrqr(double epsilon) {
     return reinterpret_cast<hmat_compression_algorithm_t*>(new hmat::CompressionRRQR(epsilon));
 }

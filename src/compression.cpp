@@ -43,6 +43,11 @@
 #include "common/my_assert.h"
 #include "cluster_assembly_function.hpp"
 #include "random_pivot_manager.hpp"
+#include <cstdlib>
+#include <stdlib.h>
+#include <random>
+#include <fstream>
+#include <string>
 
 #ifdef _MSC_VER
 // Intel compiler defines isnan in global namespace
@@ -230,7 +235,7 @@ static int findMinCol(const ClusterAssemblyFunction<T>& block,
 
 
 template<typename T>
-RkMatrix<T>* truncatedSvd(FullMatrix<T>* m, double epsilon) {
+RkMatrix<T>*  truncatedSvd(FullMatrix<T>* m, double epsilon) {
   DECLARE_CONTEXT;
 
   if (m->isZero()) {
@@ -278,6 +283,9 @@ CompressionSVD::compress(const ClusterAssemblyFunction<Z_t>& block) const {
 
 template<typename T>
 void acaFull(ScalarArray<T> & m, ScalarArray<T>* & tmpA, ScalarArray<T>* & tmpB, double compressionEpsilon) {
+  //std::ofstream file;
+  //file.open("residu_acaf_Z.txt");
+  //double init_norm=m.norm();
   DECLARE_CONTEXT;
   double estimateSquaredNorm = 0;
   int maxK = min(m.rows, m.cols);
@@ -294,6 +302,7 @@ void acaFull(ScalarArray<T> & m, ScalarArray<T>* & tmpA, ScalarArray<T>* & tmpB,
       break;
     }
 
+    //file<< nu<<" "<<m.norm()/init_norm<<std::endl;
     // Creation of the vectors A_i_nu and B_j_nu
     {
       Vector<T> va_nu(*tmpA, nu);
@@ -324,7 +333,6 @@ void acaFull(ScalarArray<T> & m, ScalarArray<T>* & tmpA, ScalarArray<T>* & tmpB,
       const double b_nu_norm_2 = vb_nu.normSqr();
       const double ab_norm_2 = a_nu_norm_2 * b_nu_norm_2;
       estimateSquaredNorm += ab_norm_2;
-
       // Evaluate the stopping criterion
       // ||a_nu|| ||b_nu|| < compressionEpsilon * ||S_nu||
       // <=> ||a_nu||^2 ||b_nu||^2 < compressionEpsilon^2 ||S_nu||^2
@@ -342,6 +350,7 @@ void acaFull(ScalarArray<T> & m, ScalarArray<T>* & tmpA, ScalarArray<T>* & tmpB,
     tmpA->resize(nu);
     tmpB->resize(nu);
   }
+  //file.close(); 
 }
 
 template<typename T> RkMatrix<T>* acaFull(FullMatrix<T>* m, double compressionEpsilon) {
@@ -357,7 +366,7 @@ template<typename T> RkMatrix<T>* acaFull(FullMatrix<T>* m, double compressionEp
 template<typename T> RkMatrix<typename Types<T>::dp>*
 doCompressionAcaFull(const ClusterAssemblyFunction<T>& block, double eps) {
   FullMatrix<typename Types<T>::dp> * m = block.assemble();
-  auto r = acaFull<typename Types<T>::dp>(m, eps);
+  auto r=acaFull<typename Types<T>::dp>(m,eps);
   delete m;
   return r;
 }
@@ -792,6 +801,202 @@ template<typename T> RkMatrix<typename Types<T>::dp>* compressOneStratum(
 }
 
 template <typename T>
+void ardGaussBlock(ScalarArray<T> &t, ScalarArray<T> * &a , ScalarArray<T> * &b , double epsilon, int vect_per_block)
+{
+  /////
+  ScalarArray<T> *t_copy=t.copy();
+  ScalarArray<T> *u_start=nullptr;
+  ScalarArray<T> *v_start=nullptr;
+  Vector<typename Types<T>::real> *sigma_start=nullptr;
+  t_copy->svdDecomposition(&u_start,&sigma_start,&v_start);
+  /////
+  int iter=0;
+  int nb_row= t.rows;
+  int nb_col=t.cols;
+  //double norm_init=t.norm();
+  a=new ScalarArray <T>(nb_row,0);
+  b=new ScalarArray <T>(nb_col,0);
+  char transA='T';
+  if(std::is_same<T,Z_t>::value || std::is_same<T,C_t>::value)transA='C';
+  while(iter<nb_col)
+  { 
+    ScalarArray <T> Omega(nb_col, vect_per_block , 0 , 1);
+    ScalarArray<T> Y(nb_row, vect_per_block);
+    ScalarArray<T> a_i(nb_row, vect_per_block);
+    ScalarArray<T> b_i(vect_per_block, nb_col);
+    Y.gemm('N' , 'N' , 1 , &t , &Omega , 0);
+    //std::cout<<"norme restante = "<<t.norm()<<std::endl;
+    //std::cout<<"Y.max_norm_col()<(epsilon*sqrt(M_PI)/10*sqrt(2*nb_col))*norm_init"<<Y.max_norm_col()<< " < " <<(epsilon*sqrt(M_PI)/10*sqrt(2*nb_col))*norm_init<<std::endl;
+    //if(Y.max_norm_col()<(epsilon*sqrt(M_PI)/10*sqrt(2*nb_col))*norm_init)
+    //{
+    //  break;
+    //}
+    ScalarArray<T> R (nb_row, vect_per_block);
+    Y.qrDecomposition(&R , 0);
+    for (int i = 0 ; i< vect_per_block; i++)
+    {
+      a_i.get(i,i)=1;
+    }
+    Y.productQ('L', 'N', &a_i);
+    ScalarArray<T> reducedR(R , 0 , vect_per_block ,0 ,vect_per_block);
+    Y.gemm('N', 'N', 1, &a_i, &reducedR, 0);
+    b_i.gemm(transA, 'N' , 1 , &a_i , &t , 0);
+    t.gemm('N','N' , -1, &a_i , &b_i , 1 );
+    b_i.transpose();
+    a->resize(iter+vect_per_block);
+    b->resize(iter+vect_per_block);
+    a->copyMatrixAtOffset(&a_i, 0 , iter);
+    b->copyMatrixAtOffset(&b_i,0 , iter);
+    iter+=vect_per_block; 
+    ///////
+    {
+    ScalarArray<T> tmp(nb_row, nb_col);
+    ScalarArray<T> *u=nullptr;
+    Vector<typename Types<T>::real> *sigma=nullptr;
+    ScalarArray<T> *v=nullptr;
+    tmp.gemm('N','T', 1 , &a_i, &b_i, 0);
+    tmp.svdDecomposition(&u,&sigma,&v);
+    std::ofstream file;
+    std::string sigma_file="sigmas_"+std::to_string(iter)+".txt";
+    file.open(sigma_file, std::ios::app);
+    for (int i = 0 ; i<vect_per_block; i++)
+    {
+      file<<iter-vect_per_block+i<<" "<<(*sigma)[i]<<std::endl;//(*sigma_start)[iter-vect_per_block+i]-
+    }
+    delete u;
+    delete v;
+    file.close();
+    delete sigma;
+    }
+    ///////
+  } 
+}
+template <typename T>
+RkMatrix <T>* ardGaussBlock(FullMatrix <T>* m , double epsilon )
+{
+  ScalarArray<T> *A;
+  ScalarArray <T> *B;
+  int vect_per_block=(int)m->data.lda/20> 0 ? (int)m->data.lda/20  : 2;
+  ardGaussBlock(m->data , A , B , epsilon, vect_per_block);
+  return new RkMatrix<T>(A , m->rows_ , B , m->cols_);
+}
+
+template<typename T> RkMatrix<typename Types<T>::dp>*
+doCompressionArdGaussBlock(const ClusterAssemblyFunction<T>& block, double eps) {
+  FullMatrix<typename Types<T>::dp> * m = block.assemble();
+  auto r = ardGaussBlock<typename Types<T>::dp>(m, eps);
+  delete m;
+  return r;
+}
+
+RkMatrix<Types<S_t>::dp>*
+CompressionArdGaussBlock::compress(const ClusterAssemblyFunction<S_t>& block) const {
+  return doCompressionArdGaussBlock(block, epsilon_);
+}
+RkMatrix<Types<D_t>::dp>*
+CompressionArdGaussBlock::compress(const ClusterAssemblyFunction<D_t>& block) const {
+  return doCompressionArdGaussBlock(block, epsilon_);
+}
+RkMatrix<Types<C_t>::dp>*
+CompressionArdGaussBlock::compress(const ClusterAssemblyFunction<C_t>& block) const {
+  return doCompressionArdGaussBlock(block, epsilon_);
+}
+RkMatrix<Types<Z_t>::dp>*
+CompressionArdGaussBlock::compress(const ClusterAssemblyFunction<Z_t>& block) const {
+  return doCompressionArdGaussBlock(block, epsilon_);
+}
+
+//template <typename T> RkMatrix <T>* ardGaussBlockNU(FullMatrix <T>* m , double eps, int vect_per_block)
+//{
+//  int it=0;
+//  int nb_row=m->rows();
+//  int nb_col=m->cols();
+//  int max_rank=nb_row > nb_col ? nb_col : nb_row;
+//  double estimated_norm;
+//  const IndexSet cols_G(0,vect_per_block);
+//  const IndexSet rows_G(0,nb_col);
+//  const IndexSet rows_Q(0,nb_row);
+//  ScalarArray <T>* Q=new ScalarArray <T>(nb_row,0);
+//  FullMatrix<T>P(&rows_Q , &rows_Q , true);
+//  FullMatrix<T> Id(&rows_Q , &rows_Q , true);
+//  FullMatrix<T> *P_copy=P.copy();
+//  for (int i = 0 ; i<nb_row ; i++)
+//  {
+//      Id.get(i,i)=1;
+//  }
+//  while(it<max_rank)
+//  {
+//    ScalarArray <T> G_coef(nb_col, vect_per_block , 0,1);
+//    FullMatrix<T> G (&G_coef , &rows_G , &cols_G );
+//    FullMatrix<T> Y( &rows_Q , &cols_G );
+//    FullMatrix<T> Q_i(&rows_Q , &cols_G );
+//    Y.gemm('N' , 'N' , 1 , m , &G , 0);
+//    Q_i.gemm('N' , 'N' , -1 ,&P, &Y, 0);
+//    estimated_norm=Q_i.data.max_norm_col();
+//    if(estimated_norm < 10*eps*sqrt(M_PI/2))
+//    {
+//      break;
+//    }
+//    std::cout<<estimated_norm<<std::endl;
+//    ScalarArray<T> R (max_rank, max_rank, true );
+//    Q_i.data.qrDecomposition(&R , 0);
+//    Q_i.data.getQ();
+//    it+=vect_per_block; 
+//    Q->resize(it);
+//    Q->copyMatrixAtOffset(&Q_i.data , 0 , it-vect_per_block);  
+//    if(std::is_same<T,D_t>::value || std::is_same<T,S_t>::value)
+//    {
+//      P_copy->gemm('N', 'T', 1 , &Q_i , &Q_i , 1);
+//      P.gemm('N' , 'N' , -1 , P_copy , &Id , 1);
+//    }
+//    if(std::is_same<T,Z_t>::value || std::is_same<T,C_t>::value)
+//    {
+//      P_copy->gemm('N', 'C', 1 , &Q_i ,&Q_i , 1);
+//      P.gemm('N' , 'N' , -1 , P_copy , &Id , 1); 
+//    }
+//    P_copy=P.copy();
+//  }
+//
+//  ScalarArray<T> *B=new ScalarArray<T>(it , nb_col);
+//  if(std::is_same<T,D_t>::value || std::is_same<T,S_t>::value)
+//  {
+//      B->gemm('T' , 'N'  , 1  , Q , &m->data , 0 );
+//  }
+//  if(std::is_same<T,Z_t>::value || std::is_same<T,C_t>::value)
+//  {
+//      B->gemm('C' , 'N'  , 1  , Q , &m->data , 0 );
+//  }
+//  B->transpose();
+//  return new RkMatrix<T>(Q, m->rows_ , B , m->cols_);
+//}
+//
+//template<typename T> RkMatrix<typename Types<T>::dp>*
+//doCompressionArdGaussBlockNU(const ClusterAssemblyFunction<T>& block, double eps) {
+//  FullMatrix<typename Types<T>::dp> * m = block.assemble();
+//  int vect_per_block=(m->data.lda)/100 > 0 ? m->data.lda/100 : 5;
+//  auto r = ardGaussBlockNU<typename Types<T>::dp>(m, eps, vect_per_block);
+//  delete m;
+//  return r;
+//}
+//
+//RkMatrix<Types<S_t>::dp>*
+//CompressionArdGaussBlockNU::compress(const ClusterAssemblyFunction<S_t>& block) const {
+//  return doCompressionArdGaussBlockNU(block, epsilon_);
+//}
+//RkMatrix<Types<D_t>::dp>*
+//CompressionArdGaussBlockNU::compress(const ClusterAssemblyFunction<D_t>& block) const {
+//  return doCompressionArdGaussBlockNU(block, epsilon_);
+//}
+//RkMatrix<Types<C_t>::dp>*
+//CompressionArdGaussBlockNU::compress(const ClusterAssemblyFunction<C_t>& block) const {
+//  return doCompressionArdGaussBlockNU(block, epsilon_);
+//}
+//RkMatrix<Types<Z_t>::dp>*
+//CompressionArdGaussBlockNU::compress(const ClusterAssemblyFunction<Z_t>& block) const {
+//  return doCompressionArdGaussBlockNU(block, epsilon_);
+//}
+//
+template <typename T>
 void rankRevealingQR(ScalarArray<T> &t , ScalarArray<T> * &a , ScalarArray<T> * &b , double epsilon)
 {
   double *tau=nullptr; 
@@ -824,8 +1029,10 @@ void rankRevealingQR(ScalarArray<T> &t , ScalarArray<T> * &a , ScalarArray<T> * 
     memcpy(&(v_k[k+1]), &(t.get(k+1,k)), (nb_row-k-1)*sizeof(T));
     a->reflect(v_k, tau[k], transA);
   }
-  delete tau;
-  delete sigma;  
+  free(tau);
+  std::cout<<"balise 2"<<std::endl;
+  free(sigma); 
+  std::cout<<"balise 3"<<std::endl;
 }
 template <typename T>
 RkMatrix <T>* rankRevealingQR(FullMatrix<T> *m , double epsilon)
@@ -860,6 +1067,8 @@ RkMatrix<Types<Z_t>::dp>*
 CompressionRRQR::compress(const ClusterAssemblyFunction<Z_t>& block) const {
   return doCompressionRRQR(block, epsilon_);
 }
+
+
 // Declaration of the used templates
 template RkMatrix<S_t>* truncatedSvd(FullMatrix<S_t>* m, double eps);
 template RkMatrix<D_t>* truncatedSvd(FullMatrix<D_t>* m, double eps);
@@ -876,6 +1085,16 @@ template void acaFull(ScalarArray<D_t> &, ScalarArray<D_t>* &, ScalarArray<D_t>*
 template void acaFull(ScalarArray<C_t> &, ScalarArray<C_t>* &, ScalarArray<C_t>* &, double);
 template void acaFull(ScalarArray<Z_t> &, ScalarArray<Z_t>* &, ScalarArray<Z_t>* &, double);
 
+template RkMatrix<S_t>* ardGaussBlock(FullMatrix<S_t>* m, double eps);
+template RkMatrix<D_t>* ardGaussBlock(FullMatrix<D_t>* m, double eps);
+template RkMatrix<C_t>* ardGaussBlock(FullMatrix<C_t>* m, double eps);
+template RkMatrix<Z_t>* ardGaussBlock(FullMatrix<Z_t>* m, double eps);
+
+//template RkMatrix<S_t>* ardGaussBlockNU(FullMatrix<S_t>* m, double eps, int vect_per_block);
+//template RkMatrix<D_t>* ardGaussBlockNU(FullMatrix<D_t>* m, double eps, int vect_per_block);
+//template RkMatrix<C_t>* ardGaussBlockNU(FullMatrix<C_t>* m, double eps, int vect_per_block);
+//template RkMatrix<Z_t>* ardGaussBlockNU(FullMatrix<Z_t>* m, double eps, int vect_per_block);
+
 template RkMatrix<S_t>* rankRevealingQR(FullMatrix<S_t>* m, double eps);
 template RkMatrix<D_t>* rankRevealingQR(FullMatrix<D_t>* m, double eps);
 template RkMatrix<C_t>* rankRevealingQR(FullMatrix<C_t>* m, double eps);
@@ -886,5 +1105,10 @@ template RkMatrix<Types<D_t>::dp>* compress<D_t>(const CompressionAlgorithm* met
 template RkMatrix<Types<C_t>::dp>* compress<C_t>(const CompressionAlgorithm* method, const Function<C_t>& f, const ClusterData* rows, const ClusterData* cols, double epsilon, const AllocationObserver &);
 template RkMatrix<Types<Z_t>::dp>* compress<Z_t>(const CompressionAlgorithm* method, const Function<Z_t>& f, const ClusterData* rows, const ClusterData* cols, double epsilon, const AllocationObserver &);
 
-}  // end namespace hmat
 
+
+
+
+
+
+}  // end namespace hmat

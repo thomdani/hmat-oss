@@ -34,7 +34,7 @@
 #include "common/timeline.hpp"
 #include "lapack_exception.hpp"
 #include <iomanip>
-
+#include <fstream>
 #include <algorithm>
 #include <chrono>
 
@@ -103,6 +103,24 @@ template<typename T> void RkMatrix<T>::clear() {
   delete b;
   a = NULL;
   b = NULL;
+}
+
+
+template<typename T>
+void RkMatrix<T>::toPrint()
+{
+  int nb_row=rows->size();
+  int nb_col=cols->size();
+  std::cout<<"rang = "<<rank()<<std::endl;
+  std::cout<<"rows = "<<nb_row<<std::endl;
+  std::cout<<"cols = "<<nb_col<<std::endl;
+  std::cout<<"A :"<<std::endl;
+  
+  a->toPrint();
+
+  std::cout<<"B :"<<std::endl;
+  ScalarArray<T> *b_copy=b->copy();
+  b_copy->toPrint();
 }
 
 template<typename T>
@@ -253,10 +271,9 @@ template<typename T> void RkMatrix<T>::truncate(double epsilon, int initialPivot
   DECLARE_CONTEXT;
 
   if (rank() == 0) {
-    assert(!(a || b));
+    assert(!(a || b)); 
     return;
   }
-
   assert(rows->size() >= rank());
   // Case: more columns than one dimension of the matrix.
   // In this case, the calculation of the SVD of the matrix "R_a R_b^t" is more
@@ -310,20 +327,27 @@ template<typename T> void RkMatrix<T>::truncate(double epsilon, int initialPivot
   ScalarArray<T> *u = NULL, *v = NULL;
   int newK;
   // context block to release ra, rb, r ASAP
-  {
+  
     // QR decomposition of A and B
+    clock_t t1=clock();
     ScalarArray<T> ra(rank(), rank());
     a->qrDecomposition(&ra, initialPivotA); // A contains Qa and tau_a
+    clock_t t2=clock()-t1;
+    clock_t t3=clock();
     ScalarArray<T> rb(rank(), rank());
     b->qrDecomposition(&rb, initialPivotB); // B contains Qb and tau_b
-
+    clock_t t4=clock()-t3;
     // R <- Ra Rb^t
+    clock_t t5=clock();
     ScalarArray<T> r(rank(), rank());
     r.gemm('N','T', 1, &ra, &rb , 0);
+    clock_t t6=clock()-t5;
 
     // truncated SVD of Ra Rb^t (allows failure)
+    clock_t t7=clock();
     newK = r.truncatedSvdDecomposition(&u, &v, epsilon, true); // TODO use something else than SVD ?
-  }
+    clock_t t8=clock()-t7;
+  
   if (newK == 0) {
     clear();
     return;
@@ -331,12 +355,55 @@ template<typename T> void RkMatrix<T>::truncate(double epsilon, int initialPivot
   // We need to know if qrDecomposition has used initPivot...
   // (Not so great, because HMAT_TRUNC_INITPIV is checked at 2 different locations)
   static char *useInitPivot = getenv("HMAT_TRUNC_INITPIV");
+  clock_t t9=clock();
   ScalarArray<T>* newA = truncatedAB(a, rows, newK, u, useInitPivot, initialPivotA);
   delete a;
   a = newA;
   ScalarArray<T>* newB = truncatedAB(b, cols, newK, v, useInitPivot, initialPivotB);
   delete b;
   b = newB;
+  clock_t t10=clock()-t9;
+  std::ofstream file;
+  file.open("time_truncate.txt" , std::ios::app);
+  file<<(double)t2/(CLOCKS_PER_SEC)<<" "<<(double)t4/(CLOCKS_PER_SEC)<<" "<<(double)t6/(CLOCKS_PER_SEC)<<" "<<(double)t8/(CLOCKS_PER_SEC)<<" "<<(double)t10/(CLOCKS_PER_SEC)<<std::endl;
+  file.close();
+}
+
+template<typename T> 
+void RkMatrix<T>::acaTruncate(double epsilon)
+{
+  ScalarArray<T> *p_a;
+  ScalarArray<T> *q_a;
+  ScalarArray<T> *p_b;
+  ScalarArray<T> *q_b;
+  acaFull(*a , p_a , q_a , epsilon);
+  acaFull(*b , p_b , q_b , epsilon);
+  int ra=p_a->cols;
+  int rb=p_b->cols;
+  if(rb > ra)
+  {
+    ScalarArray<T> tmp(ra, rb);
+    ScalarArray<T> *new_b=new ScalarArray<T>(ra, cols->size());
+    tmp.gemm('T', 'N' , 1 , q_a , q_b , 0);
+    new_b->gemm('N' , 'T' , 1 , &tmp , p_b , 0 );
+    new_b->transpose();
+    delete b;
+    b=new_b;
+    delete a;
+    a=p_a;
+  }
+  else 
+  {
+    ScalarArray<T> tmp(ra, rb );
+    ScalarArray<T> *new_a=new ScalarArray<T>(rows->size() , rb );
+    tmp.gemm('T', 'N' , 1 , q_a , q_b , 0);
+    new_a->gemm('N' , 'N' , 1 , p_a , &tmp , 0 );
+    delete a;
+    a=new_a;
+    delete b;
+    b=p_b;
+  }
+
 }
 
 template<typename T> 
@@ -391,6 +458,10 @@ void RkMatrix<T>::truncateAlter(double epsilon)
     memcpy(&(v_k[k+1]), &(b->get(k+1,k)), (b->rows-k-1)*sizeof(T));
     newB->reflect(v_k, tau_b[k], transA);
   }
+  //std::ofstream file;
+  //file.open("ranks.txt", std::ios::app);
+  //file<<a->rows<<" "<<a->cols<<" "<<rank_a<<" "<<b->cols<<" "<<rank_b<<" "<<RkMid->rank()<<std::endl;
+  //file.close();
   delete tau_a;
   delete tau_b;
   delete a;
@@ -398,6 +469,8 @@ void RkMatrix<T>::truncateAlter(double epsilon)
   delete b;
   b=newB;
 }
+
+
 
 template <typename T>
 void RkMatrix<T>::validateRecompression(double epsilon , int initialPivotA , int initialPivotB)
@@ -407,6 +480,7 @@ void RkMatrix<T>::validateRecompression(double epsilon , int initialPivotA , int
         truncate(epsilon , initialPivotA , initialPivotB);
         auto end1 = std::chrono::high_resolution_clock::now();
         auto start2 = std::chrono::high_resolution_clock::now();
+        std::cout<<"balise 1"<<std::endl;
         copy->truncateAlter(epsilon);
         auto end2 = std::chrono::high_resolution_clock::now();
         double exec_time_truncate=std::chrono::duration_cast<std::chrono::nanoseconds>(end1-start1).count();
@@ -515,8 +589,8 @@ template<typename T> void RkMatrix<T>::axpy(double epsilon, T alpha, const FullM
   formattedAddParts(epsilon, &alpha, &mat, 1);
 }
 
-template<typename T> void RkMatrix<T>::axpy(double epsilon, T alpha, const RkMatrix<T>* mat) {
-  formattedAddParts(epsilon, &alpha, &mat, 1);
+template<typename T> void RkMatrix<T>::axpy(double epsilon, T alpha, const RkMatrix<T>* mat, bool validRecomp ) {
+  formattedAddParts(epsilon, &alpha, &mat, 1, validRecomp);
 }
 
 /*! \brief Try to optimize the order of the Rk matrix to maximize initialPivot
@@ -598,6 +672,10 @@ template<typename T> bool allSame(const RkMatrix<T>** rks, int n) {
 template<typename T>
 void RkMatrix<T>::formattedAddParts(double epsilon, const T* alpha, const RkMatrix<T>* const * parts,
                                     const int n, bool hook) {
+  std::cout<<"rg(Rk_1) = "<<rank()<<std::endl;
+  for (int i = 0 ; i < n ; i++){
+    std::cout<<"rg(Rk_"<<i+2<<") = "<<(parts[i])->rank()<<std::endl;
+  }
   if(hook && formatedAddPartsHook && formatedAddPartsHook(this, epsilon, alpha, parts, n))
     return;
   // TODO check if formattedAddParts() actually uses sometimes this 'alpha' parameter (or is it always 1 ?)
@@ -725,8 +803,6 @@ void RkMatrix<T>::formattedAddParts(double epsilon, const T* alpha, const RkMatr
 
   assert(rankOffset==rankTotal);
   // If only one of the parts is non-zero, then the recompression is not necessary
-  if (notNullParts > 1 && epsilon >= 0)
-    truncate(epsilon, initialPivotA, initialPivotB);
   if (notNullParts > 1 && epsilon >= 0){
     if(HMatrix<T>::validateRecompression)
       validateRecompression(epsilon , initialPivotA , initialPivotB);
@@ -739,6 +815,7 @@ template<typename T>
 void RkMatrix<T>::formattedAddParts(double epsilon, const T* alpha, const FullMatrix<T>* const * parts, int n) {
   DECLARE_CONTEXT;
   FullMatrix<T>* me = eval();
+  //int vect_per_block=me->data.lda/100 > 0 ? me->data.lda/100 : 5; 
   HMAT_ASSERT(me);
 
   // TODO: here, we convert Rk->Full, Update the Full with parts[], and Full->Rk. We could also

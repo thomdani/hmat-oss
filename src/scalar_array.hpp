@@ -1,5 +1,5 @@
-#pragma once
 /*
+#pragma once
   HMat-OSS (HMatrix library, open source software)
 
   Copyright (C) 2014-2015 Airbus Group SAS
@@ -31,6 +31,7 @@
 #include "assert.h"
 #include "data_types.hpp"
 #include "hmat/hmat.h"
+
 
 namespace hmat {
 
@@ -148,7 +149,9 @@ public:
         is_ortho(d.is_ortho),
 #endif
         ownsFlag(false), rows(rowsSize), cols(colsSize), lda(d.lda) {}
-
+  /* Construct a row x col random matrix with orthonormal columns
+  */
+  ScalarArray(int _rows , int _cols ,double mean, double sigma);
   ~ScalarArray();
 
   /** This <- 0.
@@ -211,7 +214,9 @@ public:
    * undertermined values.
    * \param col_num the new number of columns
    */
-  void resize(int col_num);
+  void resize( int col_num);
+  
+ 
   /*! \brief add term by term a random value
 
     \param epsilon  x *= (1 + a),  a = epsilon*(1.0-2.0*rand()/(double)RAND_MAX)
@@ -232,6 +237,12 @@ public:
     \return the matrix norm.
    */
   double norm() const;
+  /*! \brief Return the greatest 2-norm of the columns of the matrix.
+
+    \return the norm.
+   */
+  double max_norm_col()const;
+  
   /*! \brief Return square of the Frobenius norm of the matrix 'this' x B^T.
 
     \return the matrix norm.
@@ -281,6 +292,12 @@ public:
     return &m[i + ((size_t) lda) * j];
   }
 
+  inline T* col_j(int j=0)
+  {
+    return &m[j*rows];
+  }
+
+  void toPrint();
   /*! Check the matrix for the presence of NaN numbers.
 
     If a NaN is found, an assertion is triggered.
@@ -432,6 +449,7 @@ public:
       \param c as in xORMQR
       \return 0 for success
    */
+
   int productQ(char side, char trans, ScalarArray<T>* c) const;
 
 /**
@@ -529,7 +547,7 @@ public:
 
   /*! \brief Set orthogonality flag
    */
-  inline void setOrtho(const int flag) const {
+  inline void setOrtho(const int flad) const {
 #ifdef HMAT_SCALAR_ARRAY_ORTHO
     *is_ortho = flag;
     static char *test = getenv("HMAT_TEST_ORTHO");
@@ -569,7 +587,7 @@ public:
     int absoluteMaxIndex(int startIndex = 0) const;
     /** Compute the dot product of two \Vector.
 
-        For real-valued vectors, this is the usual dot product. For
+        For real-valued vectors, this is the usual dot FF. For
         complex-valued ones, this is defined as:
            <x, y> = \bar{x}^t \times y
         as in BLAS

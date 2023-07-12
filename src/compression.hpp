@@ -41,7 +41,7 @@ template<typename T> class Function;
 class ClusterData;
 
 enum CompressionMethod {
-  Svd, AcaFull, AcaPartial, AcaPlus, NoCompression, AcaRandom
+  Svd, AcaFull, AcaPartial, AcaPlus, NoCompression, AcaRandom, ArdGauss, ArdGaussNU
 };
 class IndexSet;
 
@@ -55,6 +55,7 @@ class IndexSet;
     \param eps Accuracy
     \return A RkMatrix approximationg the argument \a m.
 */
+
 template<typename T>
 RkMatrix<T>* truncatedSvd(FullMatrix<T>* m, double eps);
 
@@ -62,9 +63,22 @@ RkMatrix<T>* truncatedSvd(FullMatrix<T>* m, double eps);
 template<typename T>
 void acaFull(ScalarArray<T> & m, ScalarArray<T>* & u, ScalarArray<T>* & v, double eps);
 
+
 /** Fast alternative to truncatedSvd based on ACA full */
 template<typename T>
 RkMatrix<T>* acaFull(FullMatrix<T>* m, double eps);
+
+template <typename T> 
+RkMatrix<T>*ardUpdate(FullMatrix<T>* m, double eps , int max_rank=1000);
+
+template <typename T>
+void ardGaussBlock(ScalarArray<T> &t, ScalarArray<T> * &a , ScalarArray<T> * &b, double epsilon, int vect_per_block);
+
+template <typename T>
+RkMatrix<T>*ardGaussBlock(FullMatrix<T>*m , double eps  );
+
+//template <typename T>
+//RkMatrix<T>*ardGaussBlockNU(FullMatrix<T>*m , double eps , int vect_per_block);
 
 /** Compress m into rk matrix u.t^v using Rank Revealing QR method with eps accuracy */
 template<typename T>
@@ -75,6 +89,7 @@ template <typename T>
 RkMatrix<T>*rankRevealingQR(FullMatrix<T>*m , double eps);
 
 // Abstract class to compress a block into an RkMatrix.
+
 class CompressionAlgorithm
 {
 public:
@@ -160,6 +175,31 @@ public:
 };
 
 
+
+class CompressionArdGaussBlock : public CompressionAlgorithm
+{
+    public :
+        explicit CompressionArdGaussBlock (double epsilon) : CompressionAlgorithm(epsilon){}
+        CompressionArdGaussBlock* clone() const { return new CompressionArdGaussBlock(epsilon_); }
+        RkMatrix<Types<S_t>::dp>* compress(const ClusterAssemblyFunction<S_t>& block) const;
+        RkMatrix<Types<D_t>::dp>* compress(const ClusterAssemblyFunction<D_t>& block) const;
+        RkMatrix<Types<C_t>::dp>* compress(const ClusterAssemblyFunction<C_t>& block) const;
+        RkMatrix<Types<Z_t>::dp>* compress(const ClusterAssemblyFunction<Z_t>& block) const;
+    
+};
+
+//class CompressionArdGaussBlockNU : public CompressionAlgorithm
+//{
+//    public :
+//        explicit CompressionArdGaussBlockNU (double epsilon) : CompressionAlgorithm(epsilon){}
+//        CompressionArdGaussBlockNU* clone() const { return new CompressionArdGaussBlockNU(epsilon_); }
+//        RkMatrix<Types<S_t>::dp>* compress(const ClusterAssemblyFunction<S_t>& block) const;
+//        RkMatrix<Types<D_t>::dp>* compress(const ClusterAssemblyFunction<D_t>& block) const;
+//        RkMatrix<Types<C_t>::dp>* compress(const ClusterAssemblyFunction<C_t>& block) const;
+//        RkMatrix<Types<Z_t>::dp>* compress(const ClusterAssemblyFunction<Z_t>& block) const;
+//    
+//};
+
 class CompressionRRQR : public CompressionAlgorithm
 {
     public :
@@ -171,6 +211,9 @@ class CompressionRRQR : public CompressionAlgorithm
         RkMatrix<Types<Z_t>::dp>* compress(const ClusterAssemblyFunction<Z_t>& block) const;
     
 };
+
+
+
 template<typename T>
 RkMatrix<typename Types<T>::dp>*
 compress(const CompressionAlgorithm* compression, const Function<T>& f,
@@ -179,3 +222,6 @@ compress(const CompressionAlgorithm* compression, const Function<T>& f,
 
 }  // end namespace hmat
 #endif
+
+
+

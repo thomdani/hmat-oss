@@ -736,6 +736,7 @@ template <typename T, template <typename> class E>
 int get_values(struct hmat_get_values_context_t *ctx) {
   DECLARE_CONTEXT;
     // No need to call DISABLE_THREADING_IN_BLOCK here, there is no BLAS call
+    std::cout<<"salut"<<std::endl;
     hmat::HMatInterface<T> *hmat = (hmat::HMatInterface<T> *)ctx->matrix;
     try {
         HMAT_ASSERT_MSG(hmat->factorization() != hmat::Factorization::HODLRSYM &&

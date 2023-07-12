@@ -43,8 +43,11 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <math.h>
+#include <fstream>
 #include <fcntl.h>
-
+#include <random>
+#include <fstream>
 #ifndef _WIN32
 #include <sys/mman.h> // mmap
 #endif
@@ -131,6 +134,29 @@ struct SigmaPrinter {
   }
 };
 static SigmaPrinter sigmaPrinter;
+
+struct ResiduPrinter {
+  char* file_name;
+  std::stringstream buf;
+  ResiduPrinter() {
+    file_name =getenv("HMAT_PRINT_RESIDU");
+  }
+  void get(int index , double residu){
+    if(!file_name) return;
+    {
+      buf<<index<<" "<<residu<<"\n";
+    }
+  }
+  void print() const{
+    if(!file_name) return;
+    FILE *f;
+    f= fopen(file_name , "w+");
+    fprintf(f ,"%s", buf.str().c_str());
+    fclose(f);
+
+  }
+};
+static ResiduPrinter residuPrinter; 
 }
 
 namespace hmat {
@@ -195,7 +221,7 @@ ScalarArray<T>::ScalarArray(int _rows, int _cols, bool initzero)
   }
   void * p;
 #ifdef HAVE_JEMALLOC
-  p = initzero ? je_calloc(size, 1) : je_malloc(size);
+   p = initzero ? je_calloc(size, 1) : je_malloc(size);
 #else
   p = initzero ? calloc(size, 1) : malloc(size);
 #endif
@@ -206,6 +232,83 @@ ScalarArray<T>::ScalarArray(int _rows, int _cols, bool initzero)
 #endif
   HMAT_ASSERT_MSG(m, "Trying to allocate %ldb of memory failed (rows=%d cols=%d sizeof(T)=%d)", size, rows, cols, sizeof(T));
   MemoryInstrumenter::instance().alloc(size, MemoryInstrumenter::FULL_MATRIX);
+}
+
+template<>
+ScalarArray<D_t>::ScalarArray(int _rows,int _cols ,double mean , double sigma)
+{
+  rows=_rows;
+  cols=_cols;
+  int size=rows*cols;
+  D_t(*data)= new D_t[size];  
+  std::random_device rd; 
+  std::mt19937 generator(rd());
+  std::normal_distribution <D_t> gauss(mean,sigma);
+  for (int i = 0 ; i<size; i++)
+  {
+    data[i]=gauss(generator);
+  }
+  m=data;
+  lda=rows > cols ? rows : cols;
+}
+template<>
+
+ScalarArray<S_t>::ScalarArray(int _rows,int _cols ,double mean , double sigma)
+{
+  rows=_rows;
+  cols=_cols;
+  int size=rows*cols;
+  S_t(*data)= new S_t[size];  
+  std::random_device rd; 
+  std::mt19937 generator(rd());
+  std::normal_distribution <S_t> gauss(mean,sigma);
+  for (int i = 0 ; i<size; i++)
+  {
+    data[i]=gauss(generator);
+  }
+  m=data;
+  lda=rows > cols ? rows : cols;
+}
+
+template<>
+ScalarArray<C_t>::ScalarArray(int _rows,int _cols ,double mean , double sigma)
+{
+
+  rows=_rows;
+  cols=_cols;
+  int size=rows*cols;
+  C_t(*data)= new C_t[size];  
+  std::random_device rd; 
+  std::mt19937 generator(rd());
+  std::normal_distribution <float> gauss_re(mean , sigma);
+  std::normal_distribution <float> gauss_im(mean , sigma);
+  for (int i = 0 ; i<size ; i++)
+  {
+    data[i]=std::complex<float>(gauss_re(generator), gauss_im(generator));
+  } 
+  m=data; 
+  lda=rows > cols ? rows : cols;
+}
+
+
+template<>
+ScalarArray<Z_t>::ScalarArray(int _rows,int _cols ,double mean , double sigma)
+{
+    
+  rows=_rows;
+  cols=_cols;
+  int size=rows*cols;
+  Z_t(*data)= new Z_t[size];  
+  std::random_device rd; 
+  std::mt19937 generator(rd());
+  std::normal_distribution <double> gauss_re(mean , sigma);
+  std::normal_distribution <double> gauss_im(mean , sigma);
+  for (int i = 0 ; i<size ; i++)
+  {
+    data[i]=std::complex<double>(gauss_re(generator), gauss_im(generator));
+  }  
+  m=data;
+  lda=rows > cols ? rows : cols;
 }
 
 template<typename T> ScalarArray<T>::~ScalarArray() {
@@ -263,6 +366,19 @@ template<typename T> size_t ScalarArray<T>::storedZeros() const {
     }
   }
   return result;
+}
+template<typename T>
+void ScalarArray<T>::toPrint()
+{
+  for (int i = 0 ; i < rows ; i ++)
+  {
+    for (int j = 0 ; j < cols ; j++)
+    {
+      std::cout<<get(i,j)<<"  ";
+    }
+    std::cout<<std::endl;
+  }
+  std::cout<<std::endl;
 }
 
 template<typename T> void ScalarArray<T>::scale(T alpha) {
@@ -401,6 +517,7 @@ void ScalarArray<T>::gemm(char transA, char transB, T alpha,
   const int tB = (transB == 'N' ? 0 : ( transB == 'T' ? 1 : 2 ));
   Timeline::Task t(Timeline::BLASGEMM, &rows, &cols, &k, &tA, &tB);
   (void)t;
+ // std::cout<<"cols ="<<cols<<"  "<<"n ="<<n<<std::endl;
   assert(rows == aRows);
   assert(cols == n);
   assert(k == (transB == 'N' ? b->rows : b->cols));
@@ -426,6 +543,7 @@ template<typename T>
 void ScalarArray<T>::copyMatrixAtOffset(const ScalarArray<T>* a,
                                        int rowOffset, int colOffset) {
   assert(rowOffset + a->rows <= rows);
+  //std::cout<<colOffset<<" "<<a->cols<<" "<<cols<<std::endl;
   assert(colOffset + a->cols <= cols);
 
   if (rowOffset == 0 && a->rows == rows &&
@@ -520,6 +638,17 @@ double ScalarArray<T>::normSqr() const {
 
 template<typename T> double ScalarArray<T>::norm() const {
   return sqrt(normSqr());
+}
+template <typename T> double ScalarArray<T>::max_norm_col()const{
+  double result=0;
+  for (int j = 0 ; j<cols; j++)
+  {
+    Vector<T> col_j(rows);
+    std::memcpy(&col_j[0] , &get(0,j) , sizeof(T)*rows);
+    double norm=col_j.norm();
+    result = norm > result ? norm : result;
+  }
+  return result;  
 }
 
 // Compute squared Frobenius norm of a.b^t (a=this)
@@ -896,18 +1025,30 @@ void ScalarArray<T>::inverse() {
   HMAT_ASSERT(!info);
   info = proxy_lapack::getri(rows, ptr(), lda, ipiv);
   if (info)
-    throw LapackException("getri", info);
+    throw LapackException("getri", info); 
   delete[] ipiv;
 }
 
 template<typename T> int ScalarArray<T>::truncatedSvdDecomposition(ScalarArray<T>** u, ScalarArray<T>** v, double epsilon, bool workAroundFailures) const {
   Vector<typename Types<T>::real>* sigma = NULL;
-
   svdDecomposition(u, &sigma, v, workAroundFailures);
   sigmaPrinter.print(*sigma);
-  // Control of the approximation
+  // Control of the approximatio
   int newK = findK(*sigma, epsilon);
-
+  std::ofstream file;
+  file.open("residu_svd_S.txt");
+  typename Types<T>::real frobenius_norm[(*u)->cols];
+  frobenius_norm[(*u)->cols-1]=pow((*sigma)[(*u)->cols-1],2);
+  for (int i = 2 ; i <= (*u)->cols; i++)
+  {
+    frobenius_norm[(*u)->cols-i]=frobenius_norm[(*u)->cols-i+1]+double(pow((*sigma)[(*u)->cols-i],2));
+  }
+  for (int i=0 ; i< (*u)->cols; i++)
+  {
+    file<<i<<" "<<sqrt(frobenius_norm[i]/frobenius_norm[0])<<std::endl;
+  }
+  file.close();
+  //residuPrinter.print();
   if(newK == 0) {
     delete *u;
     delete *v;
@@ -1131,7 +1272,8 @@ int ScalarArray<T>::productQ(char side, char trans, ScalarArray<T>* c) const {
   DECLARE_CONTEXT;
   Timeline::Task t(Timeline::PRODUCTQ, &cols, &c->rows, &c->cols);
   (void)t;
-  assert((side == 'L') ? rows == c->rows : rows == c->cols);
+
+  //assert((side == 'L') ? cols == c->rows : rows == c->cols);
   {
     size_t _m = c->rows, _n = c->cols, _k = cols;
     size_t muls = 2 * _m * _n * _k - _n * _k * _k + 2 * _n * _k;
@@ -1141,7 +1283,7 @@ int ScalarArray<T>::productQ(char side, char trans, ScalarArray<T>* c) const {
 
   // In qrDecomposition(), tau is stored in the last column of 'this'
   // it is not valid to work with 'tau' inside the array 'a' because zunmqr modifies 'a'
-  // during computation. So we work on a copy of tau.
+  // during computation. So we work on a copy of tau.or
   T tau[std::min(rows, cols)];
   memcpy(tau, const_ptr(0, cols-1), sizeof(T)*std::min(rows, cols));
 
@@ -1151,10 +1293,11 @@ int ScalarArray<T>::productQ(char side, char trans, ScalarArray<T>* c) const {
   return 0;
 }
 
+
 template <typename T>
 void ScalarArray<T>::reflect(Vector<T> &v_house, double beta, char transA)
 {
-    assert(abs(beta) >= abs(std::numeric_limits<T>::epsilon()));
+    //assert(abs(beta) >= abs(std::numeric_limits<T>::epsilon()));
     ScalarArray<T> w_house(1,cols);
     w_house.gemm(transA , 'N' , beta ,  &v_house ,this, 0);
     rankOneUpdateT(1,v_house, w_house);
@@ -1167,7 +1310,9 @@ template <typename T> void ScalarArray<T>::cpqrDecomposition(int * &sigma, doubl
   int min_dim=std::min(cols , rows);
   sigma=(int*)malloc(min_dim*sizeof(int));
   tau=(double*)malloc(min_dim*sizeof(double));
+
   //sigma will be modifief each iteration to keep track of the columns transpositions
+
   for (int i =0 ; i < cols ; i++)
   {
     sigma[i]=i;
@@ -1245,6 +1390,124 @@ template <typename T> void ScalarArray<T>::cpqrDecomposition(int * &sigma, doubl
   *rank=iter;
   tau=(double*)realloc(tau, sizeof(double)*iter);
 }
+
+template <typename T> void ScalarArray<T>::cpqrBlock( double **tau ,int *rank, double epsilon)
+{
+  int b=6;
+  //double init_norm=norm();
+  ScalarArray<T> *mat=copy();
+  double res_normSqr=normSqr();
+  int iter=0;
+  int min_dim=std::min(cols , rows);
+  *tau=(double*)malloc(min_dim*sizeof(double));
+  char transA;
+  if(std::is_same<Z_t, T>::value || std::is_same<C_t, T>::value) transA='C'; 
+  else transA='T';
+  toPrint();
+  std::cout<<"norme  ="<<sqrt(res_normSqr)<<std::endl;
+  std::cout<<"norme restante = "<<res_normSqr<<std::endl;
+  while (iter <min_dim)//sqrt(res_normSqr) > epsilon*init_norm && 
+  {
+    std::cout<<"iter ="<<iter<<std::endl;
+    ScalarArray<T> remainder_right(*this , iter , rows-iter , iter+b , cols-iter-b);
+    ScalarArray<T> V(rows-iter, b, true);
+    ScalarArray<T> W(rows-iter, b, true);    
+    //Classic Householder updates (reflectors applied one by one) on remainder[iter:rows,iter:iter+b] and construction of W and Y
+    for (int i = 0 ; i< b ; i++)
+    {
+      std::cout<<" i =    "<<i<<std::endl;
+      T x1=get(iter+i,iter+i); 
+      Vector<T> v_house(rows-iter-i);
+      memcpy(v_house.ptr(), ptr(iter+i, iter+i), sizeof(T)*(rows-iter-i));
+      ScalarArray<T> sub_remainder_left(*this, iter+i , rows-iter-i , iter+i , b-i);
+      ScalarArray<T> remainder(*mat , iter+i , rows-iter-i , iter+i , cols-iter-i);
+      T mu=v_house.norm();
+      T alpha=abs(x1)!=0 ? x1+(x1/abs(x1))*mu : mu;
+      v_house[0]=abs(x1)!=0 ? 1 : 0;// x1+(abs(x1)/x1)*mu;
+      for (int j = 1 ; j< rows-iter-i ; j++)
+      {
+        v_house[j]=v_house[j]/alpha;
+      }
+      
+      //////
+
+      T x2=mat->get(iter+i,iter+i); 
+      Vector<T> v_house_full(rows-iter-i);
+      memcpy(v_house_full.ptr(), mat->ptr(iter+i, iter+i), sizeof(T)*(rows-iter-i));
+      T nu=v_house_full.norm();
+      T alpha_mat=abs(x2)!=0 ? x2+(x2/abs(x2))*nu : nu;
+      v_house_full[0]=abs(x2)!=0 ? 1 : 0;// x1+(abs(x1)/x1)*mu;
+      for (int j = 1 ; j< rows-iter-i ; j++)
+      {
+        v_house_full[j]=v_house_full[j]/alpha_mat;
+      }
+
+      double beta=(-2/v_house.normSqr());
+      (*tau)[iter+i]=beta;//needed to later re-construct Q from this
+      ScalarArray <T> w_house(1,b-i);
+      ScalarArray <T> w_house_full(1,cols-iter-i);
+      w_house.gemm(transA , 'N' , beta ,&v_house , &sub_remainder_left ,  0);
+      w_house_full.gemm(transA , 'N' , (-2/v_house_full.normSqr()) , &v_house_full , &remainder , 0);
+      w_house_full.toPrint();
+      w_house.toPrint();
+      remainder.toPrint();
+      sub_remainder_left.toPrint();
+      sub_remainder_left.rankOneUpdateT(1 , v_house , w_house);
+      remainder.rankOneUpdateT(1 ,  v_house_full , w_house_full);
+      remainder.toPrint();
+      sub_remainder_left.toPrint();
+      mat->toPrint();
+      toPrint();
+      T *v_house_normalized=(T*)malloc(sizeof(T)*(rows-iter-i));  
+      //Construction of W and Y
+      if(i==0)
+      {
+        for ( int j = 0 ; j<rows-iter-i ; j++)
+        {
+          v_house_normalized[j]=v_house[j]*(T)beta;  
+        }
+        memcpy(V.ptr(),v_house.ptr(),sizeof(T)*(rows-iter));
+        memcpy(W.ptr(), v_house_normalized, sizeof(T)*(rows-iter));
+      }
+      if(i > 0)
+      {
+          memcpy(V.ptr(i,i), v_house.ptr(), sizeof(T)*(rows-iter-i));
+          ScalarArray <T> w (1,rows-iter, true);
+          memcpy(w.ptr(0,i), v_house.ptr(), sizeof(T)*(rows-iter-i));
+          ScalarArray<T> tmp(1,i);
+          ScalarArray<T> V_left(V , iter+i , rows-iter-i ,  0 , i );
+          ScalarArray<T> W_left(W , 0 , rows-iter , 0 , i);
+          tmp.gemm('T', 'N', beta, &v_house, &V_left , 0);
+          w.gemm('N', 'T', 1 , &tmp , &W_left, beta);
+          memcpy(W.ptr(0 , i), w.ptr(), sizeof(T)*(rows-iter));
+      }
+      memcpy(mat->ptr(iter+i+1,iter+i), &v_house_full[1], sizeof(T)*(rows-iter-i-1));    
+    }  
+    if(iter+b < cols)
+    {
+      ScalarArray<T> tmp_alt(b , cols-iter-b);
+      tmp_alt.gemm('T', 'N', 1 , &W, &remainder_right , 0);
+      remainder_right.gemm('N', 'N', 1 , &V , &tmp_alt , 1);
+    }
+    for (int i = iter; i < b+iter ; i++)
+    {
+      for (int j = i ; j<cols ; j++ )
+      {
+        res_normSqr-=std::pow(abs(get(i,j)),2);
+      }
+    }
+    iter+=b;
+    std::cout<<"norme = "<<norm()<<std::endl;
+    std::cout<<"norme de la coppie "<<mat->norm()<< std::endl;
+    std::cout<<"norme restante = "<<res_normSqr<<std::endl;
+  }
+  //mat->toPrint();
+  *rank=iter;
+  *tau=(double*)realloc(*tau, sizeof(double)*iter);
+  std::cout<<"rang trouvé = "<<*rank<<std::endl;
+  }
+
+
 template<typename T> int ScalarArray<T>::modifiedGramSchmidt(ScalarArray<T> *result, double prec, int initialPivot ) {
   DECLARE_CONTEXT;
   Timeline::Task t(Timeline::MGS, &rows, &cols, &initialPivot);

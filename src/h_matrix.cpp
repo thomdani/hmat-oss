@@ -790,7 +790,7 @@ template <typename T> RkMatrix<T> * toRk(const HMatrix<T> *m) {
   if(m->isLeaf()) {
     // must copy because acaFull (as truncatedSvd) modify the input
     FullMatrix<T> * mc = m->full()->copy();
-    r = acaFull(mc, m->lowRankEpsilon());
+    r=acaFull(mc , m->lowRankEpsilon());
     delete mc;
   } else {
     r = new RkMatrix<T>(NULL, m->rows(), NULL, m->cols());
@@ -925,7 +925,7 @@ void HMatrix<T>::axpy(T alpha, const RkMatrix<T>* b) {
     if (isRkMatrix()) {
       if(!rk())
           rk(new RkMatrix<T>(NULL, rows(), NULL, cols()));
-      rk()->axpy(lowRankEpsilon(), alpha, newRk);
+      rk()->axpy(lowRankEpsilon(), alpha, newRk, HMatrix<T>::validateRecompression);
       rank_ = rk()->rank();
     } else {
       // In this case, the matrix has small size

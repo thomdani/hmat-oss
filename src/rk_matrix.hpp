@@ -100,7 +100,9 @@ public:
   ~RkMatrix();
 
   int rank() const {
+    
       return a ? a->cols : 0;
+      
   }
 
   /**  Returns a pointer to a new RkMatrix representing a subset of indices.
@@ -134,6 +136,19 @@ public:
   void truncateAlter(double epsilon);
   /** Recompress an RKMatrix in place and validate using an alternative RRQR-based method */
   void validateRecompression(double epsilon , int initialPivotA , int initialPivotB);
+
+  void acaTruncate(double epsilon);
+
+  void acaTruncateBis(double epsilon);
+
+  void acaTruncateTer(double epsilon);
+
+  void ardGaussTruncate(double epsilon);
+
+  void truncateRac(double epsilon);
+
+  int rangeFinder(double epsilon);
+
   /** Add randomness to the RkMatrix */
   void addRand(double epsilon);
   /*! \brief Return square of the Frobenius norm of the matrix.
@@ -147,12 +162,13 @@ public:
       \param mat
    */
   void axpy(double epsilon, T alpha, const FullMatrix<T>* mat);
+  
   /** this <- this + alpha * mat
 
       \param alpha
       \param mat
    */
-  void axpy(double epsilon, T alpha, const RkMatrix<T>* mat);
+  void axpy(double epsilon, T alpha, const RkMatrix<T>* mat, bool validRecomp=false);
   /** Adds a list of RkMatrix to a RkMatrix.
 
       In this function, RkMatrix may include some
@@ -194,6 +210,11 @@ public:
    */
   void transpose();
   void clear();
+
+  /* 
+  print RkMatrix with its dimensions and its members 
+  */
+ void toPrint();
 
   /** Copy  RkMatrix into this.
    */

@@ -65,7 +65,9 @@ typedef enum {
   hmat_compress_aca_partial,
   hmat_compress_aca_plus,
   hmat_compress_aca_random,
-  hmat_compress_rrqr
+  hmat_compress_rrqr,
+  hmat_compress_ard_gauss,
+  hmat_compress_ard_gauss_nu
 } hmat_compress_t;
 
 typedef enum {
@@ -373,6 +375,8 @@ HMAT_API hmat_compression_algorithm_t* hmat_create_compression_aca_full(double e
 HMAT_API hmat_compression_algorithm_t* hmat_create_compression_aca_partial(double epsilon);
 HMAT_API hmat_compression_algorithm_t* hmat_create_compression_aca_plus(double epsilon);
 HMAT_API hmat_compression_algorithm_t* hmat_create_compression_aca_random(double epsilon);
+HMAT_API hmat_compression_algorithm_t* hmat_create_compression_ard_gauss(double epsilon);
+HMAT_API hmat_compression_algorithm_t* hmat_create_compression_ard_gauss_nu(double epsilon);
 HMAT_API hmat_compression_algorithm_t* hmat_create_compression_rrqr(double epsilon);
 
 /* Delete a compression algorithm */

@@ -136,9 +136,38 @@ inline int getrs<hmat::Z_t>(char trans, int n, int nrhs, const hmat::Z_t *a,
   return LAPACKE_zgetrs(LAPACK_COL_MAJOR, trans, n, nrhs, a, lda, ipiv, b, ldb);
 }
 
+
+//    SUBROUTINE GEQP3(M , N , A , LDA , JVPT , TAU , WORK , LWORK , INFO)
+// GEQP3 computes a pivoted QR factorization of a real M-by-N matrix A :
+// A*P=Q*R where P is a permutation matrix.
+
+template <typename T> int geqp3 (int m , int n ,  T *a , int lda , int *jvpt , T *tau);
+
+template<> 
+inline int geqp3<hmat::S_t>(int m , int n  , hmat::S_t *a , int lda  , int *jvpt , hmat::S_t *tau ){
+  return LAPACKE_sgeqp3(LAPACK_COL_MAJOR , m , n , a , lda , jvpt, tau);
+}
+template<> 
+inline int geqp3<hmat::D_t>(int m , int n  , hmat::D_t *a , int lda  , int *jvpt , hmat::D_t *tau ){
+  return LAPACKE_dgeqp3(LAPACK_COL_MAJOR , m , n , a , lda , jvpt, tau);
+}
+template<> 
+inline int geqp3<hmat::C_t>(int m , int n  , hmat::C_t *a , int lda  , int *jvpt , hmat::C_t *tau ){
+  return LAPACKE_cgeqp3(LAPACK_COL_MAJOR , m , n , a , lda , jvpt, tau);
+}
+template<> 
+inline int geqp3<hmat::Z_t>(int m , int n  , hmat::Z_t *a , int lda  , int *jvpt , hmat::Z_t *tau ){
+  return LAPACKE_zgeqp3(LAPACK_COL_MAJOR , m , n , a , lda , jvpt, tau);
+}
+
+
+
 //       SUBROUTINE ZGEQRF( M, N, A, LDA, TAU, WORK, LWORK, INFO )
 //  ZGEQRF computes a QR factorization of a real M-by-N matrix A:
 //  A = Q * R.
+
+
+
 template <typename T> int geqrf(int m, int n, T *a, int lda, T *tau);
 
 template <>
